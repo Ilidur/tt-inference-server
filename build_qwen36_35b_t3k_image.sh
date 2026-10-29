@@ -5,12 +5,18 @@
 set -euo pipefail
 
 REPO_ROOT=~/.local/lib/tt-inference-server
-TT_METAL_SRC=~/qwen36-t3k/tt-metal
-VLLM_TT_PLUGIN_SRC=~/qwen36-t3k/vllm-tt-plugin
-# The actual source we ship: tt-metal's HEAD (prefix-caching Phases 1-5, see
-# docs/DESIGN_qwen36_prefix_caching.md) and vllm-tt-plugin's local branch carrying the
-# companion MambaSpec/block-table commits those phases depend on -- both unpushed, so both
-# are baked from a local checkout rather than git-cloned, same as TT_METAL_SRC already was.
+# Both source trees are baked from local checkouts (the tt-metal one already built in place), at
+# whatever commit they have checked out. Override the paths to ship a different pair, e.g. the
+# "slots" serving image: tt-metal branch qwen36-t3k-slots + vllm-tt-plugin worktree at 28f15e5.
+TT_METAL_SRC="${TT_METAL_SRC:-$HOME/qwen36-t3k/tt-metal}"
+VLLM_TT_PLUGIN_SRC="${VLLM_TT_PLUGIN_SRC:-$HOME/qwen36-t3k/vllm-tt-plugin}"
+# The tag and labels name a commit, so the trees must be exactly that commit.
+for src in "${TT_METAL_SRC}" "${VLLM_TT_PLUGIN_SRC}"; do
+    if [ -n "$(git -C "${src}" status --porcelain --untracked-files=no)" ]; then
+        echo "ERROR: ${src} has uncommitted changes; commit or stash before building" >&2
+        exit 1
+    fi
+done
 TT_METAL_COMMIT="$(cd "${TT_METAL_SRC}" && git rev-parse --short=12 HEAD)"
 TT_VLLM_COMMIT_SHA_OR_TAG="$(cd "${VLLM_TT_PLUGIN_SRC}" && git rev-parse --short=12 HEAD)"
 IMAGE_TAG="localhost/qwen36-35b-a3b-t3k:${TT_METAL_COMMIT}-${TT_VLLM_COMMIT_SHA_OR_TAG}"
@@ -73,6 +79,9 @@ docker build \
     --build-arg TT_VLLM_COMMIT_SHA_OR_TAG="${TT_VLLM_COMMIT_SHA_OR_TAG}" \
     --build-arg VLLM_TT_PLUGIN_SRC_IMAGE="${VLLM_TT_PLUGIN_SRC_IMAGE}" \
     --build-arg CONTAINER_APP_UID=1000 \
+    --label "org.qwen36.tt-metal-commit=$(git -C "${TT_METAL_SRC}" rev-parse HEAD)" \
+    --label "org.qwen36.vllm-tt-plugin-commit=$(git -C "${VLLM_TT_PLUGIN_SRC}" rev-parse HEAD)" \
+    --label "org.qwen36.tt-inference-server-commit=$(git rev-parse HEAD)" \
     . -f vllm-tt-metal/vllm.tt-metal.src.dev.qwen36-t3k.Dockerfile
 
 echo "✅ built ${IMAGE_TAG}"
