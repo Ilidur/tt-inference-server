@@ -1015,10 +1015,120 @@ templates:
         trace_region_size: 1073741824
         l1_small_size: 24576
         sample_on_device_mode: decode_only
+    # Wormhole T3K (4x N300, 8 chips), TP=8. Measured on hardware rather than scaled from the
+    # Blackhole specs above:
+    #   * KV is bf16 and only 10 of 40 layers carry it -> 10 KiB/token/device.
+    #   * GDN recurrent state is fp32 and context-independent -> 15.3 MiB per concurrent slot.
+    #   * The two together put the ceiling at 524288 tokens: every B x ISL combination at or below
+    #     that ran, and every one at 1048576 hit TT_FATAL Out of Memory. Hence the override, which
+    #     decouples the pool from max_context x max_concurrency (8.4M) the way the P300X2 spec does.
+    #   * max_context 262144 verified at B=1; max_concurrency 32 verified at 8k and 16k.
+    - device: T3K
+      max_concurrency: 32
+      max_context: 262144
+      max_tokens_all_users_override: 524288
+      default_impl: true
+      env_vars:
+        TT_QWEN35_TEXT_VER: qwen36_blackhole
+        HF_MODEL: Qwen/Qwen3.6-27B
+        MESH_DEVICE: "T3K"
+        QWEN36_MAX_TOKENS_ALL_USERS: "524288"
+      vllm_args:
+        enable_auto_tool_choice: true
+        reasoning_parser: qwen3
+        tool_call_parser: qwen3_coder
+      override_tt_config:
+        fabric_config: FABRIC_1D
+        trace_region_size: 1073741824
+        l1_small_size: 24576
+        sample_on_device_mode: decode_only
   status: EXPERIMENTAL
   has_builtin_warmup: true
   metadata:
     Qwen/Qwen3.6-27B:
+      reasoning_parser_name: qwen3
+      tool_call_parser_name: qwen3_coder
+
+- weights:
+    - Qwen/Qwen3.5-0.8B
+  impl: qwen36_blackhole
+  inference_engine: VLLM
+  model_type: LLM
+  supported_modalities:
+    - text
+  device_model_specs:
+    # One N300 card (2 chips, TP=2). 0.8B dense hybrid GDN+attention (8 heads / 2 KV heads: cannot shard 8 ways).
+    # Baseline pre-caching image: no block_size / prefix caching settings.
+    - device: N300
+      max_concurrency: 1
+      max_context: 32768
+      max_tokens_all_users_override: 32768
+      default_impl: true
+      env_vars:
+        TT_QWEN35_TEXT_VER: qwen36_blackhole
+        HF_MODEL: Qwen/Qwen3.5-0.8B
+        MESH_DEVICE: "N300"
+        QWEN36_MAX_TOKENS_ALL_USERS: "32768"
+      vllm_args:
+        enable_auto_tool_choice: true
+        reasoning_parser: qwen3
+        tool_call_parser: qwen3_coder
+      override_tt_config:
+        fabric_config: FABRIC_1D
+        trace_region_size: 1073741824
+        l1_small_size: 24576
+  status: EXPERIMENTAL
+  has_builtin_warmup: true
+  metadata:
+    Qwen/Qwen3.5-0.8B:
+      reasoning_parser_name: qwen3
+      tool_call_parser_name: qwen3_coder
+
+- weights:
+    - Qwen/Qwen3.6-35B-A3B
+  impl: qwen36_blackhole
+  inference_engine: VLLM
+  model_type: LLM
+  supported_modalities:
+    - text
+  device_model_specs:
+    # Wormhole T3K (4x N300, 8 chips), TP=8. MoE (35B-A3B): C=1024/device at TP=8, under the
+    # C=1280 the dense 27B already runs unchunked on WH, so the GDN conv channel-chunking fix
+    # (gate chunks on Blackhole, not just moe_num_experts>0 -- see model_config.py) is what makes
+    # this run at all. Envelope is architecture-shared with the 27B T3K spec above (10 KiB/token
+    # bf16 KV over 10/40 layers, 15.3 MiB/slot fp32 GDN state) and independently confirmed by the
+    # 30-config B x ISL matrix run directly against this MoE checkpoint: every combination at or
+    # below 524288 tokens passed, every one at 1048576 hit TT_FATAL Out of Memory.
+    - device: T3K
+      max_concurrency: 32
+      max_context: 262144
+      max_tokens_all_users_override: 524288
+      default_impl: true
+      env_vars:
+        TT_QWEN35_TEXT_VER: qwen36_blackhole
+        HF_MODEL: Qwen/Qwen3.6-35B-A3B
+        MESH_DEVICE: "T3K"
+        QWEN36_MAX_TOKENS_ALL_USERS: "524288"
+        # vllm-tt-plugin's built-in registration only covers the dense 27B's checkpoint
+        # architecture (Qwen3_5ForConditionalGeneration). The 35B-A3B MoE checkpoint declares
+        # a different architecture string (Qwen3_5MoeForConditionalGeneration, model_type
+        # qwen3_5_moe) with no built-in mapping -- vLLM's engine-config validation rejects it
+        # ("No TT model architecture is registered ..."). Same TT wrapper class handles both
+        # (it branches internally on moe_num_experts), so just add the missing registration.
+        TT_MODEL_CLASS_OVERRIDES: "TTQwen3_5MoeForConditionalGeneration=models.demos.blackhole.qwen36.tt.qwen36_vllm:Qwen36ForCausalLM"
+      vllm_args:
+        enable_auto_tool_choice: true
+        reasoning_parser: qwen3
+        tool_call_parser: qwen3_coder
+      override_tt_config:
+        fabric_config: FABRIC_1D
+        trace_region_size: 1073741824
+        l1_small_size: 24576
+        sample_on_device_mode: decode_only
+  status: EXPERIMENTAL
+  has_builtin_warmup: true
+  metadata:
+    Qwen/Qwen3.6-35B-A3B:
       reasoning_parser_name: qwen3
       tool_call_parser_name: qwen3_coder
 
