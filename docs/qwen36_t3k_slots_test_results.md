@@ -10,7 +10,7 @@ per-slot buffers, one KV group, block_size 64, no prefix caching), built by `bui
 | tt-inference-server | this branch (`qwen36-t3k-serving`); the exact SHA is in the image label `org.qwen36.tt-inference-server-commit` |
 
 Served as `Qwen/Qwen3.8-27B`, `--max-model-len 131072 --max-num-seqs 2`, KV pool 262144 tokens
-(`scripts/qwen36_t3k/serve.sh`, spec from `make_spec.py`). Warm-cache boot to /health: ~3 min.
+(`scripts/qwen36_t3k/serve.sh`; sizes come from the catalog entry for the model). Warm-cache boot to /health: ~3 min.
 
 | Suite (`scripts/qwen36_t3k/test_long_context.py`) | Result |
 |---|---|
